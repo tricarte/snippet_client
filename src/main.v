@@ -13,6 +13,42 @@ import arrays
 
 const dbpath = os.home_dir() + '/repos/sniploc-bulma-carton/src/db/dbase.sqlite'
 
+struct Snippet {
+	id          string
+	title       string = 'Placeholder for title'
+	description string = 'Placeholder for description'
+	content     string = 'Placeholder for content'
+	stype       string
+	parent      string
+}
+
+fn (s Snippet) to_toml() string {
+	content := "[snippet]
+id='${s.id}'
+
+# Mandatory
+title='${s.title}'
+
+# Not mandatory
+description='''
+${s.description}
+'''
+
+# Not mandatory
+content='''
+${s.content}
+'''
+
+# Use `:SnpSyn` to see available syntax types
+type='${s.stype}'
+
+# Use `:SnpParent` to see available parent categories
+[parent]
+id='${s.parent}'"
+
+	return content
+}
+
 fn main() {
 	mut app := Command{
 		name:        'default'
@@ -49,8 +85,34 @@ fn main() {
 				]
 			},
 			Command{
+				name:    'update'
+				execute: update_func
+				flags:   [
+					cli.Flag{
+						flag:        .string
+						required:    true
+						name:        'file'
+						abbrev:      'f'
+						description: 'Snippet template file path.'
+					},
+				]
+			},
+			Command{
 				name:    'delete'
 				execute: delete_func
+				flags:   [
+					cli.Flag{
+						flag:        .string
+						required:    true
+						name:        'snippet'
+						abbrev:      's'
+						description: 'Snippet ID.'
+					},
+				]
+			},
+			Command{
+				name:    'read'
+				execute: read_func
 				flags:   [
 					cli.Flag{
 						flag:        .string
@@ -65,6 +127,45 @@ fn main() {
 	}
 	app.setup()
 	app.parse(os.args)
+}
+
+fn update_func(cmd Command) ! {
+}
+
+fn read_func(cmd Command) ! {
+	snippet_id := cmd.flags.get_string('snippet') or {
+		panic('Failed to get `snippet` flag: ${err}')
+	}
+	tmpfile := os.temp_dir() + '/snippet-' + snippet_id + '.toml'
+	mut f := os.create(tmpfile) or { panic('Temp file ${tmpfile} not writable!') }
+
+	db := sqlite.connect(dbpath)!
+	query := 'SELECT id, title, description, content, type, parent_id FROM snpy_items WHERE uuid = ?'
+	result := db.exec_param(query, snippet_id)!
+
+	snp := Snippet{
+		id:          result[0].vals[0]
+		title:       result[0].vals[1]
+		description: if result[0].vals[2] != '' {
+			result[0].vals[2]
+		} else {
+			'Placeholder for description'
+		}
+		content:     if result[0].vals[3] != '' {
+			result[0].vals[3]
+		} else {
+			'Placeholder for content'
+		}
+		stype:       result[0].vals[4]
+		parent:      result[0].vals[5]
+	}
+
+	content := toml.encode(snp)
+
+	f.write_string(content)!
+	f.close()
+	os.system('vim --remote-silent ${tmpfile}')
+	print(tmpfile)
 }
 
 fn delete_func(cmd Command) ! {
