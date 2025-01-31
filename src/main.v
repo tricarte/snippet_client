@@ -169,6 +169,16 @@ fn read_func(cmd Command) ! {
 }
 
 fn delete_func(cmd Command) ! {
+	for {
+		print('Are you sure you want to delete this snippet? [ y/n ]: ')
+		line := os.get_line().trim_space()
+		match line {
+			'y' { break }
+			'n' { return }
+			else { continue }
+		}
+	}
+
 	snippet_id := cmd.flags.get_string('snippet') or {
 		panic('Failed to get `snippet` flag: ${err}')
 	}
