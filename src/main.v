@@ -14,7 +14,7 @@ import arrays
 const dbpath = os.home_dir() + '/repos/sniploc-bulma-carton/src/db/dbase.sqlite'
 
 struct Snippet {
-	id          string
+	uuid        string
 	title       string = 'Placeholder for title'
 	description string = 'Placeholder for description'
 	content     string = 'Placeholder for content'
@@ -24,7 +24,7 @@ struct Snippet {
 
 fn (s Snippet) to_toml() string {
 	content := "[snippet]
-id='${s.id}'
+id='${s.uuid}'
 
 # Mandatory
 title='${s.title}'
@@ -140,11 +140,11 @@ fn read_func(cmd Command) ! {
 	mut f := os.create(tmpfile) or { panic('Temp file ${tmpfile} not writable!') }
 
 	db := sqlite.connect(dbpath)!
-	query := 'SELECT id, title, description, content, type, parent_id FROM snpy_items WHERE uuid = ?'
+	query := 'SELECT uuid, title, description, content, type, parent_id FROM snpy_items WHERE uuid = ?'
 	result := db.exec_param(query, snippet_id)!
 
 	snp := Snippet{
-		id:          result[0].vals[0]
+		uuid:        result[0].vals[0]
 		title:       result[0].vals[1]
 		description: if result[0].vals[2] != '' {
 			result[0].vals[2]
@@ -228,6 +228,8 @@ id='Placeholder for parent id'"
 	println(tmpfile)
 }
 
+// Both creates new records and updates existing ones
+// based on the snippet.id field's existece in the toml file.
 fn save_func(cmd Command) ! {
 	inputfile := cmd.flags.get_string('file') or { panic('Failed to get `file` flag: ${err}') }
 	if !os.is_file(inputfile) {
@@ -296,21 +298,37 @@ fn save_func(cmd Command) ! {
 		exit(1)
 	}
 
-	query = 'INSERT INTO snpy_items(title, description, parent_id, slug, type, content, uuid, creation_date, update_date )
+	sid := doc.value_opt('snippet.id') or { toml.Any('') }
+
+	mut params := []string{cap: 9}
+	params << title
+	params << description
+	params << parent_id
+	params << slug
+	params << snptype
+	params << content
+	params << creation_date
+	params << uuid
+
+	if sid.string() == '' {
+		query = 'INSERT INTO snpy_items(title, description, parent_id, slug, type, content, creation_date, update_date, uuid )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-	db.exec_param_many(query, [
-		title,
-		description,
-		parent_id,
-		slug,
-		snptype,
-		content,
-		uuid,
-		creation_date,
-		creation_date,
-	]) or {
+		params.insert(6, creation_date)
+	} else {
+		query = 'UPDATE snpy_items SET title = ?, description = ?, parent_id =
+		?, slug = ?, type = ?, content = ?, update_date = ? WHERE uuid = ?'
+		params[params.len - 1] = sid.string()
+	}
+
+	db.exec_param_many(query, params) or {
 		eprintln('Couldnot save the snippet!')
 		exit(1)
 	}
-	println('success')
+	if db.get_affected_rows_count() == 1 {
+		println('success')
+	} else {
+		eprintln('Error! Affected row count should be 1 but it is: ' +
+			db.get_affected_rows_count().str())
+		exit(1)
+	}
 }
