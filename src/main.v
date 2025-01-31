@@ -14,12 +14,13 @@ import arrays
 const dbpath = os.home_dir() + '/repos/sniploc-bulma-carton/src/db/dbase.sqlite'
 
 struct Snippet {
-	uuid        string
-	title       string = 'Placeholder for title'
-	description string = 'Placeholder for description'
-	content     string = 'Placeholder for content'
-	stype       string
-	parent      string
+	uuid          string
+	title         string = 'Placeholder for title'
+	description   string = 'Placeholder for description'
+	content       string = 'Placeholder for content'
+	stype         string
+	parent        string
+	parents_title string
 }
 
 fn (s Snippet) to_toml() string {
@@ -44,7 +45,7 @@ type='${s.stype}'
 
 # Use `:SnpParent` to see available parent categories
 [parent]
-id='${s.parent}'"
+id='${s.parent}' # ${s.parents_title}"
 
 	return content
 }
@@ -140,24 +141,29 @@ fn read_func(cmd Command) ! {
 	mut f := os.create(tmpfile) or { panic('Temp file ${tmpfile} not writable!') }
 
 	db := sqlite.connect(dbpath)!
-	query := 'SELECT uuid, title, description, content, type, parent_id FROM snpy_items WHERE uuid = ?'
+	query := 'SELECT uuid, title, description, content, type, parent_id, parents_tree.parents_title
+	FROM snpy_items
+	JOIN parents_tree
+	ON snpy_items.parent_id = parents_tree.id
+	WHERE uuid = ?'
 	result := db.exec_param(query, snippet_id)!
 
 	snp := Snippet{
-		uuid:        result[0].vals[0]
-		title:       result[0].vals[1]
-		description: if result[0].vals[2] != '' {
+		uuid:          result[0].vals[0]
+		title:         result[0].vals[1]
+		description:   if result[0].vals[2] != '' {
 			result[0].vals[2]
 		} else {
 			'Placeholder for description'
 		}
-		content:     if result[0].vals[3] != '' {
+		content:       if result[0].vals[3] != '' {
 			result[0].vals[3]
 		} else {
 			'Placeholder for content'
 		}
-		stype:       result[0].vals[4]
-		parent:      result[0].vals[5]
+		stype:         result[0].vals[4]
+		parent:        result[0].vals[5]
+		parents_title: result[0].vals[6]
 	}
 
 	content := toml.encode(snp)
