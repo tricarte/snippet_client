@@ -25,6 +25,7 @@ struct Snippet {
 
 fn (s Snippet) to_toml() string {
 	content := "[snippet]
+# DONOT edit the id key!
 id='${s.uuid}'
 
 # Mandatory
@@ -63,6 +64,10 @@ fn main() {
 			Command{
 				name:    'syn'
 				execute: syn_func
+			},
+			Command{
+				name:    'clone'
+				execute: clone_func
 			},
 			Command{
 				name:    'categories'
@@ -122,6 +127,20 @@ fn main() {
 						abbrev:      's'
 						description: 'Snippet ID.'
 					},
+					cli.Flag{
+						flag:        .bool
+						required:    false
+						name:        'dump'
+						abbrev:      'd'
+						description: 'Dump snippet to stdout.'
+					},
+					cli.Flag{
+						flag:        .bool
+						required:    false
+						name:        'highlight'
+						abbrev:      'h'
+						description: 'Enable highlighted output.'
+					},
 				]
 			},
 		]
@@ -130,6 +149,35 @@ fn main() {
 	app.parse(os.args)
 }
 
+fn clone_func(cmd Command) ! {
+	db := sqlite.connect(dbpath)!
+	query := 'SELECT type, parent_id, parents_title
+FROM snpy_items
+JOIN parents_tree ON snpy_items.parent_id = parents_tree.id
+WHERE snpy_items.deleted = 0
+ORDER BY snpy_items.id DESC LIMIT 1;'
+	result := db.exec(query)!
+
+	snp := Snippet{
+		uuid:          ''
+		stype:         result[0].vals[0]
+		parent:        result[0].vals[1]
+		parents_title: result[0].vals[2]
+	}
+
+	tmpfile := os.temp_dir() + '/snippet-clone.toml'
+	mut f := os.create(tmpfile) or { panic('Temp file ${tmpfile} not writable!') }
+
+	content := toml.encode(snp)
+
+	f.write_string(content)!
+	f.close()
+	// os.system('vim --remote-silent ${tmpfile}')
+	print(tmpfile)
+
+}
+
+// TODO:
 fn update_func(cmd Command) ! {
 }
 
@@ -141,12 +189,24 @@ fn read_func(cmd Command) ! {
 	mut f := os.create(tmpfile) or { panic('Temp file ${tmpfile} not writable!') }
 
 	db := sqlite.connect(dbpath)!
-	query := 'SELECT uuid, title, description, content, type, parent_id, parents_tree.parents_title
-	FROM snpy_items
-	JOIN parents_tree
-	ON snpy_items.parent_id = parents_tree.id
-	WHERE uuid = ?'
-	result := db.exec_param(query, snippet_id)!
+	mut query := ''
+	mut result := []sqlite.Row{len: 7}
+	if snippet_id == 'last' {
+		query = 'SELECT uuid, title, description, content, type, parent_id, parents_tree.parents_title
+		FROM snpy_items
+		JOIN parents_tree ON snpy_items.parent_id = parents_tree.id
+		WHERE snpy_items.deleted = 0
+		ORDER BY snpy_items.id DESC LIMIT 1;'
+		result = db.exec(query)!
+	} else {
+		query = 'SELECT uuid, title, description, content, type, parent_id, parents_tree.parents_title
+		FROM snpy_items
+		JOIN parents_tree
+		ON snpy_items.parent_id = parents_tree.id
+		WHERE uuid = ?'
+		result = db.exec_param(query, snippet_id)!
+	}
+
 
 	snp := Snippet{
 		uuid:          result[0].vals[0]
@@ -170,7 +230,10 @@ fn read_func(cmd Command) ! {
 
 	f.write_string(content)!
 	f.close()
-	os.system('vim --remote-silent ${tmpfile}')
+	if snippet_id != 'last' {
+		// os.system('/usr/local/bin/vim --remote-silent ${tmpfile}')
+		os.system('/home/sagirbas/bin/open-with-nvim.sh ${tmpfile}')
+	}
 	print(tmpfile)
 }
 
@@ -215,7 +278,7 @@ fn categories_func(cmd Command) ! {
 }
 
 fn new_func(cmd Command) ! {
-	tmpfile := os.temp_dir() + '/snippet-' + rand.string(8)
+	tmpfile := os.temp_dir() + '/snippet-' + rand.string(8) + '.toml'
 	content := "[snippet]
 # Mandatory
 title='Placeholder for title'
