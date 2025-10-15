@@ -10,8 +10,11 @@ import encoding.base64
 import time
 import einar_hjortdal.slugify
 import arrays
+import net.unix
+import strings
 
 const dbpath = os.home_dir() + '/repos/sniploc-bulma-carton/src/db/dbase.sqlite'
+const socket_path = '/tmp/preview_server.sock'
 
 struct Snippet {
 	uuid          string
@@ -91,19 +94,6 @@ fn main() {
 				]
 			},
 			Command{
-				name:    'update'
-				execute: update_func
-				flags:   [
-					cli.Flag{
-						flag:        .string
-						required:    true
-						name:        'file'
-						abbrev:      'f'
-						description: 'Snippet template file path.'
-					},
-				]
-			},
-			Command{
 				name:    'delete'
 				execute: delete_func
 				flags:   [
@@ -115,6 +105,10 @@ fn main() {
 						description: 'Snippet ID.'
 					},
 				]
+			},
+			Command{
+				name:    'clear-cache'
+				execute: clear_cache_func
 			},
 			Command{
 				name:    'read'
@@ -172,19 +166,45 @@ ORDER BY snpy_items.id DESC LIMIT 1;'
 
 	f.write_string(content)!
 	f.close()
-	// os.system('vim --remote-silent ${tmpfile}')
 	print(tmpfile)
 
 }
 
-// TODO:
-fn update_func(cmd Command) ! {
+fn clear_cache_func(cmd Command) ! {
+	mut c := unix.connect_stream(socket_path) or { panic('Error connecting to the socket!') }
+	defer {
+		c.close() or { panic('Error closing the connection!') }
+	}
+
+	// If we send only one word (without spaces), then the cache will be cleared
+	c.write_string('clear-cache') or { panic('Error writing to the socket!') }
+
+	mut buf := []u8{len: 4096}
+	mut bl := strings.new_builder(512)
+
+	for {
+		mut read := c.read(mut buf) or { break }
+		if read != 0 {
+			bl.write_string(buf[0..read].bytestr())
+		}
+	}
+	print(bl.str())
 }
 
 fn read_func(cmd Command) ! {
 	snippet_id := cmd.flags.get_string('snippet') or {
 		panic('Failed to get `snippet` flag: ${err}')
 	}
+
+	to_dump := cmd.flags.get_bool('dump') or { false }
+
+	to_highlight := cmd.flags.get_bool('highlight') or { false }
+
+	if to_dump {
+		dump_snippet(snippet_id, to_highlight)!
+		return
+	}
+
 	tmpfile := os.temp_dir() + '/snippet-' + snippet_id + '.toml'
 	mut f := os.create(tmpfile) or { panic('Temp file ${tmpfile} not writable!') }
 
@@ -206,7 +226,6 @@ fn read_func(cmd Command) ! {
 		WHERE uuid = ?'
 		result = db.exec_param(query, snippet_id)!
 	}
-
 
 	snp := Snippet{
 		uuid:          result[0].vals[0]
@@ -231,8 +250,7 @@ fn read_func(cmd Command) ! {
 	f.write_string(content)!
 	f.close()
 	if snippet_id != 'last' {
-		// os.system('/usr/local/bin/vim --remote-silent ${tmpfile}')
-		os.system('/home/sagirbas/bin/open-with-nvim.sh ${tmpfile}')
+		os.execute('open_with_nvim ${tmpfile}')
 	}
 	print(tmpfile)
 }
@@ -305,6 +323,27 @@ id='Placeholder for parent id'"
 	f.write_string(content)!
 	f.close()
 	println(tmpfile)
+}
+
+// Used by read_func()
+fn dump_snippet(sid string, hl bool) ! {
+	mut c := unix.connect_stream(socket_path) or { panic('Error connecting to the socket!') }
+	defer {
+		c.close() or { panic('Error closing the connection!') }
+	}
+
+	c.write_string(sid + ' ' + if hl { 'hl' } else { 'nohl' }) or { panic('Error writing to the socket!') }
+
+	mut buf := []u8{len: 4096}
+	mut bl := strings.new_builder(512)
+
+	for {
+		mut read := c.read(mut buf) or { break }
+		if read != 0 {
+			bl.write_string(buf[0..read].bytestr())
+		}
+	}
+	print(bl.str())
 }
 
 // Both creates new records and updates existing ones

@@ -1,6 +1,6 @@
 # Binaries for programs and plugins
 main
-snippet_writer
+snippet_client
 *.exe
 *.exe~
 *.so
