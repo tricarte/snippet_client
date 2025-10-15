@@ -1,5 +1,5 @@
 Module {
-	name: 'snippet_writer'
+	name: 'snippet_client'
 	description: ''
 	version: '0.0.0'
 	license: 'MIT'
