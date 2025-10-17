@@ -170,25 +170,9 @@ ORDER BY snpy_items.id DESC LIMIT 1;'
 
 }
 
+// Used by .cc command in snp, clears all cache if w/o uuid.
 fn clear_cache_func(cmd Command) ! {
-	mut c := unix.connect_stream(socket_path) or { panic('Error connecting to the socket!') }
-	defer {
-		c.close() or { panic('Error closing the connection!') }
-	}
-
-	// If we send only one word (without spaces), then the cache will be cleared
-	c.write_string('clear-cache') or { panic('Error writing to the socket!') }
-
-	mut buf := []u8{len: 4096}
-	mut bl := strings.new_builder(512)
-
-	for {
-		mut read := c.read(mut buf) or { break }
-		if read != 0 {
-			bl.write_string(buf[0..read].bytestr())
-		}
-	}
-	print(bl.str())
+	print(talk_to_server('ccache')!)
 }
 
 fn read_func(cmd Command) ! {
@@ -327,12 +311,16 @@ id='Placeholder for parent id'"
 
 // Used by read_func()
 fn dump_snippet(sid string, hl bool) ! {
+	print(talk_to_server(sid + ' ' + if hl { 'hl' } else { 'nohl' })!)
+}
+
+fn talk_to_server(cmd string) !string {
 	mut c := unix.connect_stream(socket_path) or { panic('Error connecting to the socket!') }
 	defer {
 		c.close() or { panic('Error closing the connection!') }
 	}
 
-	c.write_string(sid + ' ' + if hl { 'hl' } else { 'nohl' }) or { panic('Error writing to the socket!') }
+	c.write_string(cmd) or { panic('Error writing to the socket!') }
 
 	mut buf := []u8{len: 4096}
 	mut bl := strings.new_builder(512)
@@ -343,7 +331,7 @@ fn dump_snippet(sid string, hl bool) ! {
 			bl.write_string(buf[0..read].bytestr())
 		}
 	}
-	print(bl.str())
+	return bl.str()
 }
 
 // Both creates new records and updates existing ones
@@ -444,6 +432,10 @@ fn save_func(cmd Command) ! {
 	}
 	if db.get_affected_rows_count() == 1 {
 		println('success')
+		// We have updated a snippet, clear its cached preview
+		if sid.string() != '' {
+			talk_to_server('ccache' + ' ' + sid.string())!
+		}
 	} else {
 		eprintln('Error! Affected row count should be 1 but it is: ' +
 			db.get_affected_rows_count().str())
