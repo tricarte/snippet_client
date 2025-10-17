@@ -372,6 +372,11 @@ fn save_func(cmd Command) ! {
 		exit(1)
 	}
 
+	if snptype == 'Create a new category' && parent_id == '1' {
+		eprintln('You cannot create a snippet in root directory!')
+		exit(1)
+	}
+
 	if content == 'Placeholder for content' {
 		content = ''
 	}
